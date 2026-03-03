@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 
 interface NotesPanelProps {
@@ -106,6 +106,7 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ rootDir, startContext }) => {
     const [currentNote, setCurrentNote]   = useState<string>('');
     const [mode, setMode]                 = useState<PanelMode>('edit');
     const [loading, setLoading]           = useState(false);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         setContext(startContext || 'General');
@@ -128,13 +129,16 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ rootDir, startContext }) => {
         setCurrentNote(notes[context] || '');
     }, [context, notes]);
 
-    const handleSave = async (text: string) => {
-        if (!rootDir) return;
+    const handleSave = (text: string) => {
         const updated = { ...notes, [context]: text };
         setNotes(updated);
         setCurrentNote(text);
-        try { await window.api.saveNotes(rootDir, updated); }
-        catch (e) { console.error('Failed to save notes', e); }
+        if (!rootDir) return;
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            try { await window.api.saveNotes(rootDir, updated); }
+            catch (e) { console.error('Failed to save notes', e); }
+        }, 500);
     };
 
     // Annotated symbols: all contexts with non-empty notes, excluding current

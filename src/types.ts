@@ -23,6 +23,13 @@ export interface CallSite {
     snippet: string;
 }
 
+export interface SessionState {
+    activeFile: string | null;
+    sidebarWidth: number;
+    codePanelWidth: number;
+    notesHeight: number;
+}
+
 declare global {
     interface Window {
         api: {
@@ -37,12 +44,10 @@ declare global {
 
             saveNotes: (rootDir: string, notes: Record<string, string>) => Promise<void>;
             getNotes: (rootDir: string) => Promise<Record<string, string>>;
-            saveSession: (rootDir: string, session: any) => Promise<void>;
-            getSession: (rootDir: string) => Promise<any>;
+            saveSession: (rootDir: string, session: SessionState) => Promise<void>;
+            getSession: (rootDir: string) => Promise<SessionState | null>;
             findSymbolByName: (name: string) => Promise<{ symbol: SymbolNode, file: string } | null>;
             findCallPath: (from: string, to: string) => Promise<CallPathStep[] | null>;
-
-
         };
     }
 }

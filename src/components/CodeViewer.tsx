@@ -217,6 +217,15 @@ const CodeViewer: React.FC<CodeViewerProps> = ({ filePath, highlightLine }) => {
         }
     }, [highlightLine, content]);
 
+    // Precompute inactive line set for O(1) per-line check
+    const inactiveLineSet = useMemo(() => {
+        const set = new Set<number>();
+        for (const r of inactiveRanges) {
+            for (let i = r.start; i <= r.end; i++) set.add(i);
+        }
+        return set;
+    }, [inactiveRanges]);
+
     // Pre-tokenize all lines
     const tokenizedLines = useMemo(() => {
         if (!content || !filePath) return [];
@@ -244,7 +253,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({ filePath, highlightLine }) => {
         <div className="h-full overflow-auto bg-gray-900 text-sm font-mono text-gray-300">
             <div className="flex flex-col min-w-max">
                 {tokenizedLines.map((tokens, idx) => {
-                    const isInactive = inactiveRanges.some(r => idx >= r.start && idx <= r.end);
+                    const isInactive = inactiveLineSet.has(idx);
                     const isHighlighted = highlightLine === idx;
                     return (
                         <div

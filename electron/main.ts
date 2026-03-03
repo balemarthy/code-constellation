@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as fs from 'node:fs'
 import { Analyzer } from './analyzer'
+import type { SessionState } from '../src/types'
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -19,6 +20,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 let analyzer: Analyzer | null = null
+let rootDir: string | null = null  // track current project root for path sandboxing
 
 function createWindow() {
   win = new BrowserWindow({
@@ -60,7 +62,8 @@ app.whenReady().then(() => {
 
   // IPC Handlers
   ipcMain.handle('open-directory-dialog', async () => {
-    const result = await dialog.showOpenDialog(win!, {
+    if (!win) return undefined;
+    const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory']
     });
     return result.filePaths[0];
@@ -68,11 +71,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('scan-directory', async (_, dirPath: string) => {
     if (!analyzer) return null;
+    rootDir = dirPath;
     return await analyzer.scanDirectory(dirPath);
   });
 
   ipcMain.handle('rescan-directory', async (_, dirPath: string) => {
     if (!analyzer) return null;
+    rootDir = dirPath;
     analyzer.clearCache(dirPath);
     return await analyzer.scanDirectory(dirPath);
   });
@@ -93,6 +98,10 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('read-file', (_, filePath: string) => {
+    // Only allow reading files within the opened project directory
+    if (rootDir && !filePath.startsWith(rootDir)) {
+      throw new Error('Access denied: file is outside the opened project directory.');
+    }
     return fs.promises.readFile(filePath, 'utf-8');
   });
 
@@ -101,30 +110,25 @@ app.whenReady().then(() => {
   });
 
   // Notes & Session IPC
-  ipcMain.handle('save-notes', async (_, rootDir, notes) => {
-    const notesPath = path.join(rootDir, '.code-constellation', 'notes.json');
-    const dir = path.dirname(notesPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(notesPath, JSON.stringify(notes, null, 2));
+  ipcMain.handle('save-notes', async (_, dir: string, notes: Record<string, string>) => {
+    const notesPath = path.join(dir, '.code-constellation', 'notes.json');
+    await fs.promises.mkdir(path.dirname(notesPath), { recursive: true });
+    await fs.promises.writeFile(notesPath, JSON.stringify(notes, null, 2));
   });
 
-  ipcMain.handle('get-notes', async (_, rootDir) => {
-    const notesPath = path.join(rootDir, '.code-constellation', 'notes.json');
-    if (fs.existsSync(notesPath)) {
-      return JSON.parse(fs.readFileSync(notesPath, 'utf8'));
+  ipcMain.handle('get-notes', async (_, dir: string) => {
+    const notesPath = path.join(dir, '.code-constellation', 'notes.json');
+    try {
+      return JSON.parse(await fs.promises.readFile(notesPath, 'utf8'));
+    } catch {
+      return {};
     }
-    return {};
   });
 
-  ipcMain.handle('save-session', async (_, rootDir, session) => {
-    const sessionPath = path.join(rootDir, '.code-constellation', 'session.json');
-    const dir = path.dirname(sessionPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+  ipcMain.handle('save-session', async (_, dir: string, session: SessionState) => {
+    const sessionPath = path.join(dir, '.code-constellation', 'session.json');
+    await fs.promises.mkdir(path.dirname(sessionPath), { recursive: true });
+    await fs.promises.writeFile(sessionPath, JSON.stringify(session, null, 2));
   });
 
   ipcMain.handle('find-call-path', (_, from: string, to: string) => {
@@ -132,12 +136,13 @@ app.whenReady().then(() => {
     return analyzer.findCallPath(from, to);
   });
 
-  ipcMain.handle('get-session', async (_, rootDir) => {
-    const sessionPath = path.join(rootDir, '.code-constellation', 'session.json');
-    if (fs.existsSync(sessionPath)) {
-      return JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+  ipcMain.handle('get-session', async (_, dir: string) => {
+    const sessionPath = path.join(dir, '.code-constellation', 'session.json');
+    try {
+      return JSON.parse(await fs.promises.readFile(sessionPath, 'utf8')) as SessionState;
+    } catch {
+      return null;
     }
-    return null;
   });
 
 

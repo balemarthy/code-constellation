@@ -31,9 +31,9 @@ contextBridge.exposeInMainWorld('api', {
   getInactiveRanges: (filePath: string) => ipcRenderer.invoke('get-inactive-ranges', filePath),
   readFile: (path: string) => ipcRenderer.invoke('read-file', path),
 
-  saveNotes: (rootDir: string, notes: any) => ipcRenderer.invoke('save-notes', rootDir, notes),
+  saveNotes: (rootDir: string, notes: Record<string, string>) => ipcRenderer.invoke('save-notes', rootDir, notes),
   getNotes: (rootDir: string) => ipcRenderer.invoke('get-notes', rootDir),
-  saveSession: (rootDir: string, session: any) => ipcRenderer.invoke('save-session', rootDir, session),
+  saveSession: (rootDir: string, session: object) => ipcRenderer.invoke('save-session', rootDir, session),
   getSession: (rootDir: string) => ipcRenderer.invoke('get-session', rootDir),
   findSymbolByName: (name: string) => ipcRenderer.invoke('find-symbol-by-name', name),
   findCallPath: (from: string, to: string) => ipcRenderer.invoke('find-call-path', from, to),

@@ -1,11 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Parser, Language, Node as SyntaxNode, TreeCursor } from 'web-tree-sitter';
+import type { SymbolNode, CallSite, CallPathStep } from '../src/types';
 
-// Map extensions to language names
+// Map extensions to language names (excludes .h — resolved dynamically)
 const EXTENSION_MAP: Record<string, string> = {
     '.c': 'c',
-    '.h': 'c', // Simplified
     '.cpp': 'cpp',
     '.hpp': 'cpp',
     '.cc': 'cpp',
@@ -13,26 +13,21 @@ const EXTENSION_MAP: Record<string, string> = {
     '.py': 'python',
 };
 
-export interface CallPathStep {
-    name: string;
-    file: string;
-    line: number;
-    callSite?: {
-        file: string;
-        line: number;
-        snippet: string;
-    };
+// .h files: treat as C++ if the same directory contains any .cpp/.cc file, otherwise C
+function resolveHeaderLanguage(filePath: string): string {
+    const dir = path.dirname(filePath);
+    try {
+        const siblings = fs.readdirSync(dir);
+        return siblings.some(f => f.endsWith('.cpp') || f.endsWith('.cc')) ? 'cpp' : 'c';
+    } catch {
+        return 'c';
+    }
 }
 
-export interface SymbolNode {
-    name: string;
-    type: 'function' | 'struct' | 'enum' | 'variable';
-    location: {
-        file: string;
-        start: { row: number; column: number };
-        end: { row: number; column: number };
-    };
-    children?: SymbolNode[];
+function getFileLang(filePath: string): string | undefined {
+    const ext = path.extname(filePath);
+    if (ext === '.h') return resolveHeaderLanguage(filePath);
+    return EXTENSION_MAP[ext];
 }
 
 export class Analyzer {
@@ -40,9 +35,10 @@ export class Analyzer {
     private languages: Record<string, Language> = {};
     private wasmPath: string;
     private symbolIndex: Map<string, SymbolNode[]> = new Map(); // file -> symbols
-    private callIndex: Map<string, { file: string, start: { row: number, column: number }, caller: string, snippet: string }[]> = new Map(); // funcName -> callSites
+    private callIndex: Map<string, CallSite[]> = new Map(); // funcName -> callSites
     private calleeIndex: Map<string, Set<string>> = new Map(); // callerName -> Set<calleeName>
-
+    private nameIndex: Map<string, { symbol: SymbolNode; file: string }> = new Map(); // fast O(1) lookup
+    private preprocessorIndex: Map<string, { start: number; end: number }[]> = new Map(); // file -> inactive ranges
 
     private projectConfig: Map<string, string | boolean> = new Map();
 
@@ -117,38 +113,61 @@ export class Analyzer {
 
 
     async scanDirectory(dirPath: string): Promise<Record<string, SymbolNode[]>> {
-        this.loadProjectConfig(dirPath); // Load config first
+        this.loadProjectConfig(dirPath);
         const cachePath = path.join(dirPath, '.code-constellation', 'cache.json');
-
-
-        // Try to load from cache
-        if (this.loadCache(cachePath)) {
-            console.log('Loaded from cache:', cachePath);
-            const result: Record<string, SymbolNode[]> = {};
-            for (const [file, symbols] of this.symbolIndex.entries()) {
-                result[file] = symbols;
-            }
-            return result;
-        }
 
         const files: string[] = [];
         this.getFilesRecursively(dirPath, files);
 
-        // Initialize parser if not already
-        if (!this.parser) {
-            await this.init();
-        }
+        if (!this.parser) await this.init();
 
-        for (const file of files) {
-            try {
-                await this.analyzeFile(file);
-            } catch (e) {
-                console.error(`Failed to analyze ${file}:`, e);
+        const cachedMtimes = this.loadCache(cachePath);
+
+        let needsRescan = false;
+        if (!cachedMtimes) {
+            needsRescan = true;
+        } else {
+            // Check if any file is new or modified
+            for (const file of files) {
+                const currentMtime = fs.statSync(file).mtimeMs;
+                if (cachedMtimes.get(file) !== currentMtime) {
+                    needsRescan = true;
+                    break;
+                }
+            }
+            // Check if any cached file was deleted
+            if (!needsRescan) {
+                for (const file of cachedMtimes.keys()) {
+                    if (!fs.existsSync(file)) { needsRescan = true; break; }
+                }
             }
         }
 
-        // Save to cache
-        this.saveCache(cachePath);
+        if (needsRescan) {
+            // Clear stale state and re-parse everything
+            this.symbolIndex.clear();
+            this.callIndex.clear();
+            this.calleeIndex.clear();
+            this.nameIndex.clear();
+            this.preprocessorIndex.clear();
+
+            // Preload all required language WASMs in parallel before serial parsing
+            const neededLangs = new Set(
+                files.map(f => getFileLang(f)).filter(Boolean)
+            );
+            await Promise.all([...neededLangs].map(lang => this.loadLanguage(lang)));
+
+            for (const file of files) {
+                try {
+                    await this.analyzeFile(file);
+                } catch (e) {
+                    console.error(`Failed to analyze ${file}:`, e);
+                }
+            }
+            this.saveCache(cachePath, files);
+        } else {
+            console.log('Cache up to date:', cachePath);
+        }
 
         const result: Record<string, SymbolNode[]> = {};
         for (const [file, symbols] of this.symbolIndex.entries()) {
@@ -165,24 +184,28 @@ export class Analyzer {
                 if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.code-constellation') continue;
                 this.getFilesRecursively(fullPath, fileList);
             } else {
-                if (EXTENSION_MAP[path.extname(fullPath)]) {
+                if (getFileLang(fullPath)) {
                     fileList.push(fullPath);
                 }
             }
         }
     }
 
-    private saveCache(cachePath: string) {
+    private saveCache(cachePath: string, files: string[]) {
         try {
             const cacheDir = path.dirname(cachePath);
             if (!fs.existsSync(cacheDir)) {
                 fs.mkdirSync(cacheDir, { recursive: true });
             }
 
+            const fileMtimes: [string, number][] = files.map(f => [f, fs.statSync(f).mtimeMs]);
+
             const data = {
+                version: 1,
+                fileMtimes,
                 symbolIndex: Array.from(this.symbolIndex.entries()),
                 callIndex: Array.from(this.callIndex.entries()),
-                calleeIndex: Array.from(this.calleeIndex.entries()).map(([k, v]) => [k, Array.from(v)]) // Set to Array
+                calleeIndex: Array.from(this.calleeIndex.entries()).map(([k, v]) => [k, Array.from(v)]),
             };
 
             fs.writeFileSync(cachePath, JSON.stringify(data, null, 2));
@@ -191,20 +214,23 @@ export class Analyzer {
         }
     }
 
-    private loadCache(cachePath: string): boolean {
+    // Returns cached file→mtime map on success, null on failure/missing/version mismatch.
+    private loadCache(cachePath: string): Map<string, number> | null {
         try {
-            if (!fs.existsSync(cachePath)) {
-                return false;
-            }
+            if (!fs.existsSync(cachePath)) return null;
 
             const raw = fs.readFileSync(cachePath, 'utf8');
             const data = JSON.parse(raw);
+
+            if (data.version !== 1) {
+                console.log('Cache version mismatch — will re-scan.');
+                return null;
+            }
 
             // Restore Maps and Sets
             this.symbolIndex = new Map(data.symbolIndex);
             this.callIndex = new Map(data.callIndex);
 
-            // Restore Set for calleeIndex
             this.calleeIndex = new Map();
             if (data.calleeIndex) {
                 for (const [key, value] of data.calleeIndex) {
@@ -212,10 +238,18 @@ export class Analyzer {
                 }
             }
 
-            return true;
+            // Rebuild nameIndex from symbolIndex
+            this.nameIndex = new Map();
+            for (const [file, symbols] of this.symbolIndex.entries()) {
+                for (const sym of symbols) {
+                    this.nameIndex.set(sym.name, { symbol: sym, file });
+                }
+            }
+
+            return new Map(data.fileMtimes as [string, number][]);
         } catch (e) {
             console.error('Failed to load cache:', e);
-            return false;
+            return null;
         }
     }
 
@@ -231,8 +265,7 @@ export class Analyzer {
     async analyzeFile(filePath: string): Promise<SymbolNode[]> {
         if (!this.parser) await this.init();
 
-        const ext = path.extname(filePath);
-        const langName = EXTENSION_MAP[ext];
+        const langName = getFileLang(filePath);
         if (!langName) return [];
 
         const lang = await this.loadLanguage(langName);
@@ -246,8 +279,18 @@ export class Analyzer {
         const symbols = this.extractSymbols(tree.rootNode, filePath, langName);
         this.symbolIndex.set(filePath, symbols);
 
+        // Populate fast name lookup
+        for (const sym of symbols) {
+            this.nameIndex.set(sym.name, { symbol: sym, file: filePath });
+        }
+
         // Index calls
         this.indexCalls(tree.rootNode, filePath, langName, sourceLines);
+
+        // Cache preprocessor inactive ranges for C/C++ (avoids re-parse on every file open)
+        if (langName === 'c' || langName === 'cpp') {
+            this.preprocessorIndex.set(filePath, this.computeInactiveRanges(tree.rootNode));
+        }
 
         return symbols;
     }
@@ -334,21 +377,30 @@ export class Analyzer {
 
 
     async getInactiveRanges(filePath: string): Promise<{ start: number, end: number }[]> {
+        // Return cached result if available
+        if (this.preprocessorIndex.has(filePath)) {
+            return this.preprocessorIndex.get(filePath)!;
+        }
+
+        const langName = getFileLang(filePath);
+        if (!langName || (langName !== 'c' && langName !== 'cpp')) return [];
+
         if (!this.parser) await this.init();
-
-        const ext = path.extname(filePath);
-        const langName = EXTENSION_MAP[ext];
-        if (!langName || (langName !== 'c' && langName !== 'cpp')) return []; // Only C/C++ usually use preprocessor in this way
-
         const lang = await this.loadLanguage(langName);
         this.parser!.setLanguage(lang);
         const source = fs.readFileSync(filePath, 'utf8');
         const tree = this.parser!.parse(source);
         if (!tree) return [];
 
+        const ranges = this.computeInactiveRanges(tree.rootNode);
+        this.preprocessorIndex.set(filePath, ranges);
+        return ranges;
+    }
+
+    private computeInactiveRanges(rootNode: SyntaxNode): { start: number, end: number }[] {
         const inactiveRanges: { start: number, end: number }[] = [];
 
-        const cursor = tree.rootNode.walk();
+        const cursor = rootNode.walk();
 
         const evaluateCondition = (node: SyntaxNode): boolean | null => {
             // Very simple evaluation: check if identifier exists in config and is true/1
@@ -505,6 +557,8 @@ export class Analyzer {
         this.symbolIndex.clear();
         this.callIndex.clear();
         this.calleeIndex.clear();
+        this.nameIndex.clear();
+        this.preprocessorIndex.clear();
     }
 
     public getCallees(funcName: string): string[] {
@@ -513,22 +567,7 @@ export class Analyzer {
     }
 
     public findSymbolByName(name: string): { symbol: SymbolNode, file: string } | null {
-        for (const [file, symbols] of this.symbolIndex.entries()) {
-            const found = this.findInSymbols(symbols, name);
-            if (found) return { symbol: found, file };
-        }
-        return null;
-    }
-
-    private findInSymbols(symbols: SymbolNode[], name: string): SymbolNode | null {
-        for (const s of symbols) {
-            if (s.name === name) return s;
-            if (s.children) {
-                const found = this.findInSymbols(s.children, name);
-                if (found) return found;
-            }
-        }
-        return null;
+        return this.nameIndex.get(name) ?? null;
     }
 
     private bfsPath(from: string, to: string, maxDepth = 20): string[] | null {

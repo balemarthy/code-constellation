@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SymbolNode } from '../types';
 import { FunctionSquare, Box, List, Variable } from 'lucide-react';
 
@@ -40,14 +40,16 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ symbols, onSelectSymbol, onCl
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
-    // Flatten all symbols once
-    const allSymbols: FlatSymbol[] = [];
-    for (const [file, syms] of Object.entries(symbols)) {
-        const fileName = file.split(/[/\\]/).pop() || file;
-        for (const symbol of syms) {
-            allSymbols.push({ symbol, file, fileName });
+    const allSymbols = useMemo<FlatSymbol[]>(() => {
+        const flat: FlatSymbol[] = [];
+        for (const [file, syms] of Object.entries(symbols)) {
+            const fileName = file.split(/[/\\]/).pop() || file;
+            for (const symbol of syms) {
+                flat.push({ symbol, file, fileName });
+            }
         }
-    }
+        return flat;
+    }, [symbols]);
 
     const filtered = query.trim()
         ? allSymbols.filter(({ symbol, fileName }) =>

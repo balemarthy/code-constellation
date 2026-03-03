@@ -51,9 +51,9 @@ const FileTree: React.FC<FileTreeProps> = ({ files, onSelectFile, onSelectSymbol
 
                         {isExpanded && (
                             <div className="ml-6 mt-1 border-l border-gray-800 pl-2 space-y-1">
-                                {symbols.map((sym, idx) => (
+                                {symbols.map((sym) => (
                                     <div
-                                        key={idx}
+                                        key={`${sym.name}:${sym.location.start.row}`}
                                         className="flex items-center p-1 cursor-pointer rounded hover:bg-gray-800 text-xs text-gray-400 group"
                                         onClick={(e) => {
                                             e.stopPropagation();
