@@ -1,0 +1,172 @@
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* Fix ReactFlow Controls visibility */
+.react-flow__controls {
+  background: #1f2937 !important;
+  border: 1px solid #374151 !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  display: flex !important;
+  flex-direction: row !important;
+  left: 20px !important;
+  bottom: 20px !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border-right: 1px solid #374151 !important;
+  border-bottom: none !important;
+  fill: #9ca3af !important;
+  color: #9ca3af !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-right: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #374151 !important;
+  fill: #ffffff !important;
+  color: #ffffff !important;
+}
+
+.react-flow__controls-button svg {
+  width: 16px !important;
+  height: 16px !important;
+  fill: currentColor !important;
+}
+
+/* Edge-Integrated Sliders */
+.graph-viewport-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-main-area {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-flow-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.edge-slider-h {
+  height: 10px;
+  background: transparent;
+  border-top: 1px solid rgba(55, 65, 81, 0.4);
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.edge-slider-v {
+  width: 10px;
+  background: transparent;
+  border-left: 1px solid rgba(55, 65, 81, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+  position: relative;
+}
+
+.edge-slider-input {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(55, 65, 81, 0.2);
+  height: 2px;
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.edge-slider-input:hover {
+  background: rgba(55, 65, 81, 0.6);
+  height: 4px;
+}
+
+.edge-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 8px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: 1px solid #ffffff;
+}
+
+.edge-slider-input-v {
+  transform: rotate(270deg);
+  width: 200px;
+  height: 2px;
+  position: absolute;
+  top: 50%;
+  left: -95px;
+}
+
+.zoom-corner-control {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(17, 24, 39, 0.6);
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(55, 65, 81, 0.4);
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(2px);
+  z-index: 50;
+}
