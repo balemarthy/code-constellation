@@ -1,6 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactFlow, {
     Background,
+    BackgroundVariant,
+    Controls,
+    MiniMap,
+    Panel,
     Node,
     Edge,
     Handle,
@@ -9,7 +13,6 @@ import ReactFlow, {
     useNodesState,
     useEdgesState,
     useReactFlow,
-    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { SymbolNode } from '../types';
@@ -28,41 +31,97 @@ interface SymbolNodeData {
     start?: { row: number; column: number };
     nodeKind: 'center' | 'caller' | 'callee';
     isExpanded?: boolean;
-    expansionGroupId?: string; // ID of the node whose expand action created this node
-    onToggle?: () => void;     // always up-to-date: expand if collapsed, collapse if expanded
+    expansionGroupId?: string;
+    onToggle?: () => void;
 }
+
+// ─── Color palette per role ────────────────────────────────────────────────────
+
+const ROLE_COLORS = {
+    center: {
+        bg: '#172554',
+        border: '#3b82f6',
+        label: '#bfdbfe',
+        sub: '#93c5fd',
+        file: '#60a5fa',
+        glow: 'rgba(59,130,246,0.45)',
+        badge: '#1d4ed8',
+        badgeText: '#93c5fd',
+        handle: '#3b82f6',
+    },
+    caller: {
+        bg: '#052e16',
+        border: '#22c55e',
+        label: '#bbf7d0',
+        sub: '#86efac',
+        file: '#4ade80',
+        glow: 'rgba(34,197,94,0.2)',
+        badge: '#14532d',
+        badgeText: '#86efac',
+        handle: '#22c55e',
+    },
+    callee: {
+        bg: '#2e1065',
+        border: '#a78bfa',
+        label: '#ede9fe',
+        sub: '#c4b5fd',
+        file: '#a78bfa',
+        glow: 'rgba(167,139,250,0.2)',
+        badge: '#4c1d95',
+        badgeText: '#c4b5fd',
+        handle: '#a78bfa',
+    },
+} as const;
 
 // ─── Custom node component — must be defined outside GraphView ────────────────
 
 const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
     const isCenter = data.nodeKind === 'center';
-    const isCaller = data.nodeKind === 'caller';
+    const c = ROLE_COLORS[data.nodeKind];
+    const roleLabel = isCenter ? 'SELECTED' : data.nodeKind === 'caller' ? 'CALLER' : 'CALLEE';
 
     return (
         <div style={{
-            background: isCenter ? '#2563eb' : isCaller ? '#1e293b' : '#0f172a',
-            border: isCenter ? '2px solid #3b82f6' : '1px solid #334155',
-            borderRadius: isCenter ? '10px' : '5px',
-            padding: '10px 12px',
-            minWidth: '160px',
-            maxWidth: '220px',
+            background: c.bg,
+            border: `${isCenter ? '2px' : '1px'} solid ${c.border}`,
+            borderRadius: '10px',
+            padding: isCenter ? '14px 18px' : '10px 14px',
+            minWidth: isCenter ? '190px' : '155px',
+            maxWidth: '260px',
             position: 'relative',
-            color: isCenter ? '#fff' : '#cbd5e1',
-            boxShadow: isCenter ? '0 0 20px rgba(59,130,246,0.3)' : 'none',
+            boxShadow: `0 0 ${isCenter ? 28 : 10}px ${c.glow}, 0 4px 16px rgba(0,0,0,0.6)`,
         }}>
             <Handle
                 type="target"
                 position={Position.Top}
-                style={{ background: '#475569', border: 'none', width: '8px', height: '8px' }}
+                style={{ background: c.handle, border: 'none', width: '8px', height: '8px' }}
             />
+
+            {/* Role badge */}
+            <div style={{
+                display: 'inline-block',
+                fontSize: '8px',
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                color: c.badgeText,
+                background: c.badge,
+                border: `1px solid ${c.border}`,
+                borderRadius: '4px',
+                padding: '1px 5px',
+                marginBottom: '7px',
+                opacity: 0.9,
+            }}>
+                {roleLabel}
+            </div>
 
             {/* Function name */}
             <div style={{
-                fontWeight: isCenter ? 700 : 500,
-                fontSize: isCenter ? '13px' : '11px',
+                fontWeight: isCenter ? 700 : 600,
+                fontSize: isCenter ? '14px' : '12px',
                 wordBreak: 'break-all',
                 lineHeight: '1.4',
-                paddingRight: data.onToggle ? '22px' : '0',
+                paddingRight: data.onToggle ? '28px' : '0',
+                color: c.label,
                 letterSpacing: isCenter ? '0.01em' : '0',
             }}>
                 {data.label}
@@ -72,13 +131,14 @@ const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
             {data.snippet && !isCenter && (
                 <div style={{
                     fontSize: '10px',
-                    color: '#64748b',
+                    color: c.sub,
                     fontFamily: 'monospace',
                     marginTop: '5px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    maxWidth: '185px',
+                    maxWidth: '210px',
+                    opacity: 0.8,
                 }} title={data.snippet}>
                     {data.snippet}
                 </div>
@@ -88,11 +148,12 @@ const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
             {data.file && !isCenter && (
                 <div style={{
                     fontSize: '9px',
-                    color: '#475569',
+                    color: c.file,
                     marginTop: '3px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    opacity: 0.7,
                 }}>
                     {data.file.split(/[/\\]/).pop()}
                 </div>
@@ -105,14 +166,14 @@ const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
                     title={data.isExpanded ? 'Collapse' : 'Expand callers & callees'}
                     style={{
                         position: 'absolute',
-                        top: '6px',
-                        right: '6px',
-                        width: '18px',
-                        height: '18px',
+                        top: '10px',
+                        right: '10px',
+                        width: '20px',
+                        height: '20px',
                         borderRadius: '50%',
-                        background: data.isExpanded ? '#450a0a' : '#1d4ed8',
-                        border: `1px solid ${data.isExpanded ? '#ef4444' : '#3b82f6'}`,
-                        color: data.isExpanded ? '#fca5a5' : '#fff',
+                        background: data.isExpanded ? 'rgba(239,68,68,0.15)' : `${c.badge}cc`,
+                        border: `1px solid ${data.isExpanded ? '#ef4444' : c.border}`,
+                        color: data.isExpanded ? '#fca5a5' : c.badgeText,
                         fontSize: '14px',
                         lineHeight: '1',
                         cursor: 'pointer',
@@ -121,6 +182,7 @@ const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
                         justifyContent: 'center',
                         padding: 0,
                         flexShrink: 0,
+                        transition: 'all 0.15s ease',
                     }}
                 >
                     {data.isExpanded ? '−' : '+'}
@@ -130,7 +192,7 @@ const SymbolGraphNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
             <Handle
                 type="source"
                 position={Position.Bottom}
-                style={{ background: '#475569', border: 'none', width: '8px', height: '8px' }}
+                style={{ background: c.handle, border: 'none', width: '8px', height: '8px' }}
             />
         </div>
     );
@@ -141,8 +203,7 @@ const nodeTypes = { symbolNode: SymbolGraphNode };
 // ─── GraphView ────────────────────────────────────────────────────────────────
 
 const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => {
-    const { setViewport, getNodes } = useReactFlow();
-    const { x, y, zoom } = useViewport();
+    const { getNodes } = useReactFlow();
 
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -150,8 +211,7 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
     const [pendingExpand,   setPendingExpand]   = useState<{ nodeId: string; nodeName: string } | null>(null);
     const [pendingCollapse, setPendingCollapse] = useState<string | null>(null);
 
-    // ── Node factory ──────────────────────────────────────────────────────────
-    // setPendingExpand / setPendingCollapse are stable (from useState), so makeNode is stable.
+    // ── Node / Edge factories ──────────────────────────────────────────────────
     const makeNode = useCallback((
         id: string,
         name: string,
@@ -177,10 +237,22 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
         } satisfies SymbolNodeData,
     }), [setPendingExpand]);
 
-    const makeEdge = (id: string, source: string, target: string, dim = false): Edge => ({
+    const makeEdge = (
+        id: string,
+        source: string,
+        target: string,
+        dim = false,
+        kind: 'caller' | 'callee' = 'caller',
+    ): Edge => ({
         id, source, target,
         animated: !dim,
-        style: { stroke: dim ? '#1e293b' : '#475569', strokeWidth: dim ? 1 : 1.5 },
+        style: {
+            stroke: dim
+                ? '#1e293b'
+                : kind === 'caller' ? '#22c55e' : '#a78bfa',
+            strokeWidth: dim ? 1 : 2,
+            opacity: dim ? 0.35 : 1,
+        },
     });
 
     // ── Collect all node IDs that are descendants of a given expansion ────────
@@ -212,27 +284,30 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
             const newNodes: Node[] = [];
             const newEdges: Edge[] = [];
 
-            newNodes.push(makeNode('center', centerSymbol.name, 'center', { x: 400, y: 280 }));
+            // Center at origin
+            newNodes.push(makeNode('center', centerSymbol.name, 'center', { x: 400, y: 300 }));
 
-            const callerSpacing = Math.min(240, 1200 / Math.max(callers.length, 1));
+            // Callers tier — spaced above
+            const callerSpacing = Math.min(260, 1400 / Math.max(callers.length, 1));
             const callerStartX  = 400 - ((callers.length - 1) / 2) * callerSpacing;
             callers.forEach((c, idx) => {
                 const id = `caller-${idx}`;
                 newNodes.push(makeNode(id, c.caller, 'caller',
-                    { x: callerStartX + idx * callerSpacing, y: 80 },
+                    { x: callerStartX + idx * callerSpacing, y: 60 },
                     c.snippet, c.file,
                 ));
-                newEdges.push(makeEdge(`e-${id}-ctr`, id, 'center'));
+                newEdges.push(makeEdge(`e-${id}-ctr`, id, 'center', false, 'caller'));
             });
 
-            const calleeSpacing = Math.min(240, 1200 / Math.max(callees.length, 1));
+            // Callees tier — spaced below
+            const calleeSpacing = Math.min(260, 1400 / Math.max(callees.length, 1));
             const calleeStartX  = 400 - ((callees.length - 1) / 2) * calleeSpacing;
             callees.forEach((callee, idx) => {
                 const id = `callee-${idx}`;
                 newNodes.push(makeNode(id, callee, 'callee',
-                    { x: calleeStartX + idx * calleeSpacing, y: 480 },
+                    { x: calleeStartX + idx * calleeSpacing, y: 540 },
                 ));
-                newEdges.push(makeEdge(`e-ctr-${id}`, 'center', id));
+                newEdges.push(makeEdge(`e-ctr-${id}`, 'center', id, false, 'callee'));
             });
 
             setNodes(newNodes);
@@ -271,29 +346,28 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
             const addedNodes: Node[] = [];
             const addedEdges: Edge[] = [];
 
-            const callerSpacing = Math.min(220, 1000 / Math.max(callers.length, 1));
+            const callerSpacing = Math.min(240, 1100 / Math.max(callers.length, 1));
             callers.forEach((c, idx) => {
                 if (existingLabels.has(c.caller)) return;
                 existingLabels.add(c.caller);
                 const id = `exp-${nodeId}-cal-${idx}`;
-                // Pass nodeId as expansionGroupId so collapse can find these nodes
                 addedNodes.push(makeNode(id, c.caller, 'caller',
-                    { x: pos.x + (idx - callers.length / 2) * callerSpacing, y: pos.y - 160 },
+                    { x: pos.x + (idx - callers.length / 2) * callerSpacing, y: pos.y - 180 },
                     c.snippet, c.file, nodeId,
                 ));
-                addedEdges.push(makeEdge(`ee-${id}-${nodeId}`, id, nodeId, true));
+                addedEdges.push(makeEdge(`ee-${id}-${nodeId}`, id, nodeId, true, 'caller'));
             });
 
-            const calleeSpacing = Math.min(220, 1000 / Math.max(callees.length, 1));
+            const calleeSpacing = Math.min(240, 1100 / Math.max(callees.length, 1));
             callees.forEach((callee, idx) => {
                 if (existingLabels.has(callee)) return;
                 existingLabels.add(callee);
                 const id = `exp-${nodeId}-cle-${idx}`;
                 addedNodes.push(makeNode(id, callee, 'callee',
-                    { x: pos.x + (idx - callees.length / 2) * calleeSpacing, y: pos.y + 160 },
+                    { x: pos.x + (idx - callees.length / 2) * calleeSpacing, y: pos.y + 180 },
                     undefined, undefined, nodeId,
                 ));
-                addedEdges.push(makeEdge(`ee-${nodeId}-${id}`, nodeId, id, true));
+                addedEdges.push(makeEdge(`ee-${nodeId}-${id}`, nodeId, id, true, 'callee'));
             });
 
             setNodes(prev => [
@@ -303,7 +377,6 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
                         data: {
                             ...n.data,
                             isExpanded: true,
-                            // Switch toggle to collapse handler
                             onToggle: () => setPendingCollapse(nodeId),
                         },
                       }
@@ -336,7 +409,6 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
                         data: {
                             ...n.data,
                             isExpanded: false,
-                            // Switch toggle back to expand handler
                             onToggle: () => setPendingExpand({ nodeId, nodeName: n.data.label }),
                         },
                       }
@@ -357,72 +429,86 @@ const GraphView: React.FC<GraphViewProps> = ({ centerSymbol, onNodeSelect }) => 
         }
     };
 
-    // ── Viewport slider handlers ──────────────────────────────────────────────
-    const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-        setViewport({ x, y, zoom: parseFloat(e.target.value) });
-    const handlePanXChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-        setViewport({ x: parseFloat(e.target.value), y, zoom });
-    const handlePanYChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-        setViewport({ x, y: parseFloat(e.target.value), zoom });
-
+    // ── Empty state ───────────────────────────────────────────────────────────
     if (!centerSymbol) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2">
-                <svg className="w-10 h-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-3">
+                <svg className="w-12 h-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                <span className="text-sm">Select a symbol to view its constellation</span>
-                <span className="text-xs opacity-50">or press <kbd className="border border-gray-700 rounded px-1">Ctrl+P</kbd> to search</span>
+                <span className="text-sm text-gray-500">Select a symbol to view its constellation</span>
+                <span className="text-xs opacity-40">
+                    press <kbd className="border border-gray-700 rounded px-1.5 py-0.5 bg-gray-800">Ctrl+P</kbd> to search
+                </span>
             </div>
         );
     }
 
     return (
-        <div className="h-full w-full bg-gray-950 flex flex-col graph-viewport-container">
-            <div className="flex-1 flex graph-main-area">
-                <div className="flex-1 relative graph-flow-wrapper">
-                    <ReactFlow
-                        nodes={nodes}
-                        edges={edges}
-                        nodeTypes={nodeTypes}
-                        onNodesChange={onNodesChange}
-                        onEdgesChange={onEdgesChange}
-                        onNodeClick={handleNodeClick}
-                        fitView
-                        fitViewOptions={{ padding: 0.3 }}
-                        minZoom={0.05}
-                        maxZoom={4}
-                        zoomOnScroll
-                        panOnScroll
-                    >
-                        <Background color="#1f2937" gap={20} size={1} />
-                    </ReactFlow>
-
-                    <div className="zoom-corner-control">
-                        <input
-                            type="range" min="0.05" max="4" step="0.05"
-                            value={zoom} onChange={handleZoomChange}
-                            className="edge-slider-input" style={{ width: '60px' }}
-                        />
-                    </div>
-                </div>
-
-                <div className="edge-slider-v">
-                    <input
-                        type="range" min="-2000" max="2000" step="10"
-                        value={y} onChange={handlePanYChange}
-                        className="edge-slider-input edge-slider-input-v"
-                    />
-                </div>
-            </div>
-
-            <div className="edge-slider-h">
-                <input
-                    type="range" min="-2000" max="2000" step="10"
-                    value={x} onChange={handlePanXChange}
-                    className="edge-slider-input"
+        <div className="h-full w-full" style={{ background: '#060d1a' }}>
+            <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={handleNodeClick}
+                fitView
+                fitViewOptions={{ padding: 0.35 }}
+                minZoom={0.05}
+                maxZoom={4}
+                zoomOnScroll
+                panOnDrag
+            >
+                {/* Subtle dot-grid background */}
+                <Background
+                    color="#1e293b"
+                    gap={28}
+                    size={1.5}
+                    variant={BackgroundVariant.Dots}
                 />
-            </div>
+
+                {/* Zoom / fit controls — bottom-left, larger and clear */}
+                <Controls
+                    showZoom={true}
+                    showFitView={true}
+                    showInteractive={false}
+                />
+
+                {/* Minimap for orientation on large expanded graphs */}
+                <MiniMap
+                    nodeColor={(node) => {
+                        if (node.data?.nodeKind === 'center')  return '#3b82f6';
+                        if (node.data?.nodeKind === 'caller')  return '#22c55e';
+                        return '#a78bfa';
+                    }}
+                    maskColor="rgba(6,13,26,0.8)"
+                    style={{
+                        background: '#0f172a',
+                        border: '1px solid #1e293b',
+                        borderRadius: '8px',
+                    }}
+                    nodeBorderRadius={4}
+                />
+
+                {/* Legend — top-right */}
+                <Panel position="top-right">
+                    <div className="graph-legend">
+                        <div className="graph-legend-item">
+                            <span className="graph-legend-dot" style={{ background: '#22c55e', boxShadow: '0 0 6px rgba(34,197,94,0.5)' }} />
+                            <span>Callers</span>
+                        </div>
+                        <div className="graph-legend-item">
+                            <span className="graph-legend-dot" style={{ background: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.5)' }} />
+                            <span>Selected</span>
+                        </div>
+                        <div className="graph-legend-item">
+                            <span className="graph-legend-dot" style={{ background: '#a78bfa', boxShadow: '0 0 6px rgba(167,139,250,0.5)' }} />
+                            <span>Callees</span>
+                        </div>
+                    </div>
+                </Panel>
+            </ReactFlow>
         </div>
     );
 };

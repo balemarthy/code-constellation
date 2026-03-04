@@ -3,170 +3,93 @@
   height: 100%;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
+/* ── ReactFlow Controls ────────────────────────────────────────────────────── */
 
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
-
-/* Fix ReactFlow Controls visibility */
 .react-flow__controls {
-  background: #1f2937 !important;
-  border: 1px solid #374151 !important;
-  border-radius: 4px !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  background: #0f172a !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59,130,246,0.1) !important;
   display: flex !important;
-  flex-direction: row !important;
-  left: 20px !important;
-  bottom: 20px !important;
+  flex-direction: column !important;
+  left: 16px !important;
+  bottom: 16px !important;
+  overflow: hidden !important;
 }
 
 .react-flow__controls-button {
   background: transparent !important;
-  border-right: 1px solid #374151 !important;
-  border-bottom: none !important;
-  fill: #9ca3af !important;
-  color: #9ca3af !important;
-  width: 32px !important;
-  height: 32px !important;
+  border: none !important;
+  border-bottom: 1px solid #1e293b !important;
+  fill: #64748b !important;
+  color: #64748b !important;
+  width: 36px !important;
+  height: 36px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+  transition: background 0.15s, fill 0.15s, color 0.15s !important;
 }
 
 .react-flow__controls-button:last-child {
-  border-right: none !important;
+  border-bottom: none !important;
 }
 
 .react-flow__controls-button:hover {
-  background: #374151 !important;
-  fill: #ffffff !important;
-  color: #ffffff !important;
+  background: #1e293b !important;
+  fill: #e2e8f0 !important;
+  color: #e2e8f0 !important;
 }
 
 .react-flow__controls-button svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: 14px !important;
+  height: 14px !important;
   fill: currentColor !important;
 }
 
-/* Edge-Integrated Sliders */
-.graph-viewport-container {
+/* ── ReactFlow MiniMap ─────────────────────────────────────────────────────── */
+
+.react-flow__minimap {
+  bottom: 16px !important;
+  right: 16px !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+/* ── Graph Legend (Panel top-right) ───────────────────────────────────────── */
+
+.graph-legend {
+  background: rgba(6, 13, 26, 0.85);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
+  gap: 5px;
+  backdrop-filter: blur(6px);
+  margin: 12px;
+  pointer-events: none;
 }
 
-.graph-main-area {
-  flex: 1;
-  display: flex;
-  position: relative;
-  overflow: hidden;
-}
-
-.graph-flow-wrapper {
-  flex: 1;
-  position: relative;
-}
-
-.edge-slider-h {
-  height: 10px;
-  background: transparent;
-  border-top: 1px solid rgba(55, 65, 81, 0.4);
+.graph-legend-item {
   display: flex;
   align-items: center;
-  padding: 0 4px;
+  gap: 7px;
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
 }
 
-.edge-slider-v {
-  width: 10px;
-  background: transparent;
-  border-left: 1px solid rgba(55, 65, 81, 0.4);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 4px 0;
-  position: relative;
-}
-
-.edge-slider-input {
-  flex: 1;
-  -webkit-appearance: none;
-  appearance: none;
-  background: rgba(55, 65, 81, 0.2);
-  height: 2px;
-  border-radius: 1px;
-  outline: none;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.edge-slider-input:hover {
-  background: rgba(55, 65, 81, 0.6);
-  height: 4px;
-}
-
-.edge-slider-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 8px;
-  height: 8px;
-  background: #3b82f6;
+.graph-legend-dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  border: 1px solid #ffffff;
+  flex-shrink: 0;
 }
 
-.edge-slider-input-v {
-  transform: rotate(270deg);
-  width: 200px;
-  height: 2px;
-  position: absolute;
-  top: 50%;
-  left: -95px;
-}
+/* ── ReactFlow attribution (hide Watermark) ───────────────────────────────── */
 
-.zoom-corner-control {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  background: rgba(17, 24, 39, 0.6);
-  padding: 4px;
-  border-radius: 4px;
-  border: 1px solid rgba(55, 65, 81, 0.4);
-  display: flex;
-  flex-direction: column;
-  backdrop-filter: blur(2px);
-  z-index: 50;
+.react-flow__attribution {
+  opacity: 0.25;
+  font-size: 9px;
 }
