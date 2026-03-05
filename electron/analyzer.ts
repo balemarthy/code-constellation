@@ -153,7 +153,7 @@ export class Analyzer {
 
             // Preload all required language WASMs in parallel before serial parsing
             const neededLangs = new Set(
-                files.map(f => getFileLang(f)).filter(Boolean)
+                files.map(f => getFileLang(f)).filter((lang): lang is string => Boolean(lang))
             );
             await Promise.all([...neededLangs].map(lang => this.loadLanguage(lang)));
 
