@@ -11,6 +11,10 @@ const EXTENSION_MAP: Record<string, string> = {
     '.cc': 'cpp',
     '.rs': 'rust',
     '.py': 'python',
+    '.s': 'asm',
+    '.S': 'asm',
+    '.asm': 'asm',
+    '.s51': 'asm',
 };
 
 // .h files: treat as C++ if the same directory contains any .cpp/.cc file, otherwise C
@@ -153,7 +157,7 @@ export class Analyzer {
 
             // Preload all required language WASMs in parallel before serial parsing
             const neededLangs = new Set(
-                files.map(f => getFileLang(f)).filter((lang): lang is string => Boolean(lang))
+                files.map(f => getFileLang(f)).filter((lang): lang is string => Boolean(lang) && lang !== 'asm')
             );
             await Promise.all([...neededLangs].map(lang => this.loadLanguage(lang)));
 
@@ -267,6 +271,10 @@ export class Analyzer {
 
         const langName = getFileLang(filePath);
         if (!langName) return [];
+
+        if (langName === 'asm') {
+            return this.analyzeAssemblyFile(filePath);
+        }
 
         const lang = await this.loadLanguage(langName);
         this.parser!.setLanguage(lang);
@@ -535,6 +543,84 @@ export class Analyzer {
         };
 
         traverse(cursor);
+        return symbols;
+    }
+
+    // ── Assembly (regex-based, no Tree-sitter) ──────────────────────────────
+    private analyzeAssemblyFile(filePath: string): SymbolNode[] {
+        const source = fs.readFileSync(filePath, 'utf8');
+        const lines = source.split('\n');
+        const symbols: SymbolNode[] = [];
+
+        // First pass: collect .global/.globl and .type xxx,%function markers
+        const globalNames = new Set<string>();
+        const functionTypeNames = new Set<string>();
+        for (const line of lines) {
+            const globalMatch = line.match(/^\s*\.(global|globl)\s+([a-zA-Z_][a-zA-Z0-9_.]*)/);
+            if (globalMatch) globalNames.add(globalMatch[2]);
+
+            const typeMatch = line.match(/^\s*\.type\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*,\s*%function/);
+            if (typeMatch) functionTypeNames.add(typeMatch[1]);
+        }
+
+        const hasMarkers = globalNames.size > 0 || functionTypeNames.size > 0;
+
+        // Second pass: extract labels and index calls
+        let currentFunction = '<global>';
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const stripped = line.replace(/(?:@|;|\/\/).*$/, '').trimEnd(); // strip comments
+
+            // Labels: identifier immediately followed by colon (no leading whitespace for top-level labels)
+            const labelMatch = stripped.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)\s*:/);
+            if (labelMatch) {
+                const name = labelMatch[1];
+                // Skip GCC local/internal labels like .L1, .Ltmp, etc.
+                if (!name.startsWith('.L') && !name.startsWith('.l')) {
+                    currentFunction = name;
+
+                    // If we have explicit markers, only include marked symbols; otherwise include all labels
+                    const isMarked = globalNames.has(name) || functionTypeNames.has(name);
+                    if (!hasMarkers || isMarked) {
+                        const sym: SymbolNode = {
+                            name,
+                            type: 'function',
+                            location: {
+                                file: filePath,
+                                start: { row: i, column: 0 },
+                                end: { row: i, column: line.length },
+                            },
+                        };
+                        symbols.push(sym);
+                        this.nameIndex.set(name, { symbol: sym, file: filePath });
+                    }
+                }
+                continue;
+            }
+
+            // Call instructions: ARM (BL/BLX), x86 (CALL), MIPS (JAL/JALR), AVR (CALL/RCALL)
+            // Also handle indirect branches used as calls in various ISAs
+            const callMatch = stripped.match(
+                /\b(BL|BLX|bl|blx|CALL|call|JAL|JALR|jal|jalr|RCALL|rcall|JSR|jsr)\b\s+([a-zA-Z_][a-zA-Z0-9_.]*)/
+            );
+            if (callMatch) {
+                const callee = callMatch[2];
+                const snippet = stripped.trim();
+
+                if (!this.callIndex.has(callee)) this.callIndex.set(callee, []);
+                this.callIndex.get(callee)!.push({
+                    file: filePath,
+                    start: { row: i, column: 0 },
+                    caller: currentFunction,
+                    snippet,
+                });
+
+                if (!this.calleeIndex.has(currentFunction)) this.calleeIndex.set(currentFunction, new Set());
+                this.calleeIndex.get(currentFunction)!.add(callee);
+            }
+        }
+
+        this.symbolIndex.set(filePath, symbols);
         return symbols;
     }
 

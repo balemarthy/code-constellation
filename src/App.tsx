@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { ReactFlowProvider } from 'reactflow';
 import { SymbolNode } from './types';
 import './App.css'
@@ -8,6 +8,8 @@ import CodeViewer from './components/CodeViewer';
 import NotesPanel from './components/NotesPanel';
 import SearchPanel from './components/SearchPanel';
 import CallPathFinder from './components/CallPathFinder';
+import SettingsModal from './components/SettingsModal';
+import AIPanel from './components/AIPanel';
 
 type HistoryEntry = { file: string | null; symbol: SymbolNode | null };
 
@@ -19,6 +21,47 @@ function App() {
   const [activeSymbol, setActiveSymbol] = useState<SymbolNode | null>(null);
   const [searchOpen, setSearchOpen]       = useState(false);
   const [pathFinderOpen, setPathFinderOpen] = useState(false);
+
+  // ── Settings & AI ──────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aiOpen, setAiOpen]   = useState(false);
+  const [aiContent, setAiContent] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiContext, setAiContext] = useState('');
+  const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
+
+  const handleExplainRequest = async (selectedCode: string) => {
+    const ctx = activeSymbol?.name ?? (activeFile ? activeFile.split(/[/\\]/).pop() : 'unknown') ?? 'unknown';
+    setAiContext(ctx);
+    setAiContent('');
+    setAiError(null);
+    setAiLoading(true);
+    setAiOpen(true);
+    try {
+      const result = await window.api.aiExplain(selectedCode, ctx);
+      setAiContent(result);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAddToNotes = async (text: string) => {
+    if (!rootDir) return;
+    const ctx = activeSymbol?.name ?? (activeFile ? activeFile.split(/[/\\]/).pop() : null) ?? 'General';
+    try {
+      const notes = await window.api.getNotes(rootDir);
+      const existing = notes[ctx] ?? '';
+      const separator = existing.length > 0 ? '\n\n---\n**AI Explanation:**\n' : '**AI Explanation:**\n';
+      notes[ctx] = existing + separator + text;
+      await window.api.saveNotes(rootDir, notes);
+      setNotesRefreshTrigger(t => t + 1);
+    } catch (e) {
+      console.error('Failed to add to notes', e);
+    }
+  };
 
   // ── Navigation history ─────────────────────────────────────────────────────
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
@@ -88,13 +131,15 @@ function App() {
         if (symbols) setSearchOpen(true);
       }
       if (e.key === 'Escape') {
-        if (pathFinderOpen) setPathFinderOpen(false);
+        if (aiOpen) setAiOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
+        else if (pathFinderOpen) setPathFinderOpen(false);
         else setSearchOpen(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [symbols, pathFinderOpen]);
+  }, [symbols, pathFinderOpen, aiOpen, settingsOpen]);
 
   // ── Drag-resize ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -121,22 +166,64 @@ function App() {
     };
   }, [isDraggingSidebar, isDraggingCodePanel, isDraggingNotes]);
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-  const handleOpenFolder = async () => {
-    try {
-      const dir = await window.api.openDirectoryDialog();
-      if (!dir) return;
-      setRootDir(dir);
-      setStatus('Scanning…');
-      const result = await window.api.scanDirectory(dir);
-      setSymbols(result);
-      setStatus(`${Object.keys(result).length} files indexed`);
-    } catch (e) {
-      console.error(e);
-      setStatus('Error opening folder');
-    }
-  };
+  // ── Menu IPC listeners ─────────────────────────────────────────────────────
+  const rootDirRef = useRef<string | null>(null);
+  useEffect(() => { rootDirRef.current = rootDir; }, [rootDir]);
 
+  useEffect(() => {
+    const handleMenuOpenFolder = async (dir: string) => {
+      try {
+        setRootDir(dir);
+        setStatus('Scanning…');
+        setActiveFile(null);
+        setActiveSymbol(null);
+        setHistory([]);
+        setHistoryIndex(-1);
+        const result = await window.api.scanDirectory(dir);
+        setSymbols(result);
+        setStatus(`${Object.keys(result).length} files indexed`);
+      } catch (e) {
+        console.error(e);
+        setStatus('Error opening folder');
+      }
+    };
+
+    const handleMenuCloseProject = () => {
+      setRootDir(null);
+      setSymbols(null);
+      setActiveFile(null);
+      setActiveSymbol(null);
+      setHistory([]);
+      setHistoryIndex(-1);
+      setStatus('');
+    };
+
+    const handleMenuRescan = async () => {
+      const dir = rootDirRef.current;
+      if (!dir) return;
+      setStatus('Rescanning…');
+      try {
+        const result = await window.api.rescanDirectory(dir);
+        setSymbols(result);
+        setStatus(`Rescanned — ${Object.keys(result).length} files`);
+      } catch (e) {
+        console.error(e);
+        setStatus('Rescan failed');
+      }
+    };
+
+    const unsubOpen    = window.api.onMenuOpenFolder(handleMenuOpenFolder);
+    const unsubClose   = window.api.onMenuCloseProject(handleMenuCloseProject);
+    const unsubRescan  = window.api.onMenuRescan(handleMenuRescan);
+
+    return () => {
+      unsubOpen();
+      unsubClose();
+      unsubRescan();
+    };
+  }, []);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
   const handleRescan = async () => {
     if (!rootDir) return;
     setStatus('Rescanning…');
@@ -272,14 +359,6 @@ function App() {
           <kbd className="text-[9px] text-gray-600 border border-gray-700 rounded px-1">Ctrl+⇧P</kbd>
         </button>
 
-        {/* Open Folder */}
-        <button
-          onClick={handleOpenFolder}
-          className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs transition-colors flex-shrink-0"
-        >
-          Open Folder
-        </button>
-
         {/* Rescan */}
         {rootDir && (
           <button
@@ -292,6 +371,18 @@ function App() {
             </svg>
           </button>
         )}
+
+        {/* Settings */}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
+          title="Settings"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
 
         {/* Status */}
         <span className="text-xs text-gray-500 flex-shrink-0 max-w-[180px] truncate" title={status}>
@@ -309,13 +400,14 @@ function App() {
             {symbols ? (
               <FileTree
                 files={symbols}
+                rootDir={rootDir}
                 onSelectFile={handleSelectFile}
                 onSelectSymbol={handleSelectSymbol}
                 activeFile={activeFile}
               />
             ) : (
               <div className="text-gray-600 text-xs text-center mt-10 px-4">
-                Open a folder to start exploring
+                Use <span className="text-gray-400 font-medium">File → Open Folder</span> to start exploring
               </div>
             )}
           </div>
@@ -367,6 +459,8 @@ function App() {
               <CodeViewer
                 filePath={activeFile}
                 highlightLine={activeSymbol?.location?.start?.row}
+                onExplainRequest={handleExplainRequest}
+                context={activeSymbol?.name ?? (activeFile ? activeFile.split(/[/\\]/).pop() : undefined)}
               />
             </div>
           </div>
@@ -390,12 +484,13 @@ function App() {
                   ? (activeFile.split(/[/\\]/).pop() || null)
                   : null
               }
+              refreshTrigger={notesRefreshTrigger}
             />
           </div>
         </div>
       </div>
 
-      {/* ── Search panel overlay ── */}
+      {/* ── Overlays ── */}
       {searchOpen && symbols && (
         <SearchPanel
           symbols={symbols}
@@ -407,7 +502,6 @@ function App() {
         />
       )}
 
-      {/* ── Call Path Finder overlay ── */}
       {pathFinderOpen && symbols && (
         <CallPathFinder
           symbols={symbols}
@@ -416,6 +510,23 @@ function App() {
             setPathFinderOpen(false);
           }}
           onClose={() => setPathFinderOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {aiOpen && (
+        <AIPanel
+          content={aiContent}
+          loading={aiLoading}
+          error={aiError}
+          context={aiContext}
+          onClose={() => setAiOpen(false)}
+          onAddToNotes={handleAddToNotes}
         />
       )}
     </div>

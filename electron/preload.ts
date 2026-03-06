@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
   on(...args: Parameters<typeof ipcRenderer.on>) {
     const [channel, listener] = args
@@ -18,8 +17,6 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     const [channel, ...rest] = args
     return ipcRenderer.invoke(channel, ...rest)
   },
-
-  // You can expose other apts here, if you want
 })
 
 contextBridge.exposeInMainWorld('api', {
@@ -38,4 +35,27 @@ contextBridge.exposeInMainWorld('api', {
   findSymbolByName: (name: string) => ipcRenderer.invoke('find-symbol-by-name', name),
   findCallPath: (from: string, to: string) => ipcRenderer.invoke('find-call-path', from, to),
 
+  // Settings
+  saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('save-settings', settings),
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+
+  // AI — settings (including API key) are read from disk in main process
+  aiExplain: (code: string, context: string) => ipcRenderer.invoke('ai-explain', code, context),
+
+  // Menu event subscriptions — each returns an unsubscribe function
+  onMenuOpenFolder: (cb: (dir: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, dir: string) => cb(dir)
+    ipcRenderer.on('menu-open-folder', handler)
+    return () => ipcRenderer.off('menu-open-folder', handler)
+  },
+  onMenuCloseProject: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('menu-close-project', handler)
+    return () => ipcRenderer.off('menu-close-project', handler)
+  },
+  onMenuRescan: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('menu-rescan', handler)
+    return () => ipcRenderer.off('menu-rescan', handler)
+  },
 })

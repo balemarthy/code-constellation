@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf';
 interface NotesPanelProps {
     rootDir: string | null;
     startContext: string | null;
+    refreshTrigger?: number;
 }
 
 type PanelMode = 'edit' | 'preview' | 'overview';
@@ -100,7 +101,7 @@ function renderMarkdown(md: string): React.ReactNode {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const NotesPanel: React.FC<NotesPanelProps> = ({ rootDir, startContext }) => {
+const NotesPanel: React.FC<NotesPanelProps> = ({ rootDir, startContext, refreshTrigger }) => {
     const [notes, setNotes]               = useState<Record<string, string>>({});
     const [context, setContext]           = useState<string>('General');
     const [currentNote, setCurrentNote]   = useState<string>('');
@@ -111,6 +112,12 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ rootDir, startContext }) => {
     useEffect(() => {
         setContext(startContext || 'General');
     }, [startContext]);
+
+    // Reload notes when externally triggered (e.g. after AI "Add to Notes")
+    useEffect(() => {
+        if (!rootDir || !refreshTrigger) return;
+        window.api.getNotes(rootDir).then(setNotes).catch(e => console.error('Failed to refresh notes', e));
+    }, [refreshTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!rootDir) return;

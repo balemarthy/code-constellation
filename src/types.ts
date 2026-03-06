@@ -30,6 +30,16 @@ export interface SessionState {
     notesHeight: number;
 }
 
+export type AiProvider = 'claude' | 'openai-compatible' | 'gemini' | 'ollama';
+
+export interface AppSettings {
+    provider?: AiProvider;
+    apiKey?: string;       // used for claude / openai-compatible / gemini
+    apiBaseUrl?: string;   // base URL for OpenAI-compatible APIs (Mistral, Groq, Together, etc.)
+    model?: string;        // model override; defaults per provider if omitted
+    ollamaUrl?: string;    // base URL for Ollama (default: http://localhost:11434)
+}
+
 declare global {
     interface Window {
         api: {
@@ -48,6 +58,15 @@ declare global {
             getSession: (rootDir: string) => Promise<SessionState | null>;
             findSymbolByName: (name: string) => Promise<{ symbol: SymbolNode, file: string } | null>;
             findCallPath: (from: string, to: string) => Promise<CallPathStep[] | null>;
+
+            saveSettings: (settings: AppSettings) => Promise<void>;
+            getSettings: () => Promise<AppSettings>;
+            aiExplain: (code: string, context: string) => Promise<string>;
+
+            // Menu event subscriptions
+            onMenuOpenFolder: (cb: (dir: string) => void) => () => void;
+            onMenuCloseProject: (cb: () => void) => () => void;
+            onMenuRescan: (cb: () => void) => () => void;
         };
     }
 }
